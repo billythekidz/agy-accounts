@@ -588,84 +588,127 @@ if (process.argv.length > 2) {
 } else {
   // JSON-RPC stdio protocol loop
   let buffer = '';
+  process.stdin.setEncoding('utf8');
   process.stdin.on('data', (chunk) => {
-    buffer += chunk.toString();
+    buffer += chunk;
     let lines = buffer.split('\n');
     buffer = lines.pop(); // Keep incomplete line
     for (let line of lines) {
       if (line.trim()) {
-        handleMessage(line);
+        handleMessage(line.trim());
       }
     }
   });
+
+  process.stdin.on('end', () => {
+    logDebug('stdin closed, exiting.');
+    process.exit(0);
+  });
+
+  process.on('uncaughtException', (err) => {
+    logDebug('Uncaught exception: ' + err.message + '\n' + err.stack);
+  });
+
+  process.on('unhandledRejection', (reason) => {
+    logDebug('Unhandled rejection: ' + reason);
+  });
 }
 
+const TOOLS_LIST = [
+  {
+    name: 'list',
+    description: 'List all registered Google accounts and indicate the active one.',
+    inputSchema: { type: 'object', properties: {} }
+  },
+  {
+    name: 'add',
+    description: 'Add a new Google account profile by opening the Google login page in your browser and automatically saving the authenticated profile.',
+    inputSchema: { type: 'object', properties: {} }
+  },
+  {
+    name: 'set',
+    description: 'Switch the active Google account to a saved profile by its email.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        email: { type: 'string', description: 'The email address of the account to switch to.' }
+      },
+      required: ['email']
+    }
+  },
+  {
+    name: 'remove',
+    description: 'Remove a saved account profile.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        email: { type: 'string', description: 'The email address of the account profile to remove.' }
+      },
+      required: ['email']
+    }
+  }
+];
+
+let initialized = false;
+
 async function handleMessage(line) {
+  let request;
   try {
-    const request = JSON.parse(line);
+    request = JSON.parse(line);
+  } catch (e) {
+    logDebug('Error parsing JSON line: ' + e.message);
+    return;
+  }
+
+  // Notifications have no id — just log and skip
+  if (request.method && request.method.startsWith('notifications/')) {
+    logDebug(`Notification received (no response): ${request.method}`);
+    return;
+  }
+
+  try {
     if (request.method === 'initialize') {
+      initialized = true;
       const response = {
         jsonrpc: '2.0',
         id: request.id,
         result: {
           protocolVersion: '2024-11-05',
-          capabilities: {
-            tools: {}
-          },
-          serverInfo: {
-            name: 'agy-accounts-mcp',
-            version: '1.0.0'
-          }
+          capabilities: { tools: {} },
+          serverInfo: { name: 'agy-accounts-mcp', version: '1.0.0' }
         }
       };
       process.stdout.write(JSON.stringify(response) + '\n');
+
     } else if (request.method === 'tools/list') {
+      if (!initialized) {
+        logDebug('tools/list received before initialize — auto-bootstrapping');
+        initialized = true;
+      }
       const response = {
         jsonrpc: '2.0',
         id: request.id,
-        result: {
-          tools: [
-            {
-              name: 'list',
-              description: 'List all registered Google accounts and indicate the active one.',
-              inputSchema: { type: 'object', properties: {} }
-            },
-            {
-              name: 'add',
-              description: 'Add a new Google account profile by opening the Google login page in your browser and automatically saving the authenticated profile.',
-              inputSchema: { type: 'object', properties: {} }
-            },
-            {
-              name: 'set',
-              description: 'Switch the active Google account to a saved profile by its email.',
-              inputSchema: {
-                type: 'object',
-                properties: {
-                  email: { type: 'string', description: 'The email address of the account to switch to.' }
-                },
-                required: ['email']
-              }
-            },
-            {
-              name: 'remove',
-              description: 'Remove a saved account profile.',
-              inputSchema: {
-                type: 'object',
-                properties: {
-                  email: { type: 'string', description: 'The email address of the account profile to remove.' }
-                },
-                required: ['email']
-              }
-            }
-          ]
-        }
+        result: { tools: TOOLS_LIST }
       };
       process.stdout.write(JSON.stringify(response) + '\n');
-    } else if (request.method === 'tools/call') {
-      const toolName = request.params.name;
-      const args = request.params.arguments || {};
-      let result;
 
+    } else if (request.method === 'tools/call') {
+      const params = request.params || {};
+      const toolName = params.name;
+      const args = params.arguments || {};
+
+      if (!toolName) {
+        const errResponse = {
+          jsonrpc: '2.0',
+          id: request.id,
+          error: { code: -32602, message: 'Invalid params: missing tool name' }
+        };
+        process.stdout.write(JSON.stringify(errResponse) + '\n');
+        return;
+      }
+
+      logDebug(`Received tools/call: ${toolName}`);
+      let result;
       try {
         if (toolName === 'list') {
           result = await handleListAccounts();
@@ -676,7 +719,7 @@ async function handleMessage(line) {
         } else if (toolName === 'remove') {
           result = handleRemoveAccount(args.email);
         } else {
-          result = { isError: true, content: [{ type: 'text', text: `Tool ${toolName} not found` }] };
+          result = { isError: true, content: [{ type: 'text', text: `Unknown tool: ${toolName}` }] };
         }
       } catch (err) {
         logDebug(`Error executing tool ${toolName}: ${err.stack}`);
@@ -689,16 +732,27 @@ async function handleMessage(line) {
         result: result
       };
       process.stdout.write(JSON.stringify(response) + '\n');
+
     } else {
-      // Respond to other JSON-RPC requests with an empty result to prevent hangs
-      const response = {
-        jsonrpc: '2.0',
-        id: request.id,
-        result: {}
-      };
-      process.stdout.write(JSON.stringify(response) + '\n');
+      // Unknown method — return empty result only if request has an id
+      if (request.id !== undefined) {
+        const response = {
+          jsonrpc: '2.0',
+          id: request.id,
+          result: {}
+        };
+        process.stdout.write(JSON.stringify(response) + '\n');
+      }
     }
   } catch (e) {
-    logDebug('Error parsing line: ' + e.message);
+    logDebug('Unhandled error in handleMessage: ' + e.message + '\n' + (e.stack || ''));
+    if (request && request.id !== undefined) {
+      const errResponse = {
+        jsonrpc: '2.0',
+        id: request.id,
+        error: { code: -32603, message: 'Internal error: ' + e.message }
+      };
+      process.stdout.write(JSON.stringify(errResponse) + '\n');
+    }
   }
 }
