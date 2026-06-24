@@ -1,0 +1,6 @@
+{
+  "name": "antigravity-gswitch",
+  "version": "1.0.0",
+  "description": "Google account switcher for Google Antigravity CLI to manage multiple profiles and handle quota limits.",
+  "mcp_config.json": "mcp_config.json"
+}
