@@ -33,7 +33,11 @@ function getEmailFromIdToken(idToken) {
   try {
     const parts = idToken.split('.');
     if (parts.length === 3) {
-      const payload = Buffer.from(parts[1], 'base64').toString('utf-8');
+      let base64 = parts[1].replace(/-/g, '+').replace(/_/g, '/');
+      while (base64.length % 4) {
+        base64 += '=';
+      }
+      const payload = Buffer.from(base64, 'base64').toString('utf-8');
       const data = JSON.parse(payload);
       return data.email;
     }
