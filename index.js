@@ -182,7 +182,7 @@ async function handleListAccounts() {
 
   let outputText = 'Saved profiles:\n';
   if (profiles.length === 0) {
-    outputText += '  (None - use gswitch_add_current_account to save the active session)\n';
+    outputText += '  (None - use gswitch_add_account to save the active session)\n';
   } else {
     for (const email of profiles) {
       const activeMarker = (email === activeEmail) ? '★ [ACTIVE]' : '  [INACTIVE]';
@@ -191,7 +191,7 @@ async function handleListAccounts() {
   }
   
   if (activeEmail && !profiles.includes(activeEmail)) {
-    outputText += `\nCurrent active account not saved in profiles:\n  ★ [ACTIVE] ${activeEmail} (run gswitch_add_current_account to save)\n`;
+    outputText += `\nCurrent active account not saved in profiles:\n  ★ [ACTIVE] ${activeEmail} (run gswitch_add_account to save)\n`;
   }
 
   return {
@@ -202,98 +202,124 @@ async function handleListAccounts() {
   };
 }
 
-async function handleAddCurrentAccount() {
-  logDebug('Adding current active account...');
-  let tokenData = null;
-  let credsData = null;
+async function handleAddAccount() {
+  const tokenBackup = TOKEN_FILE + '.backup';
+  const credsBackup = CREDS_FILE + '.backup';
 
-  if (fs.existsSync(TOKEN_FILE)) {
-    try {
-      tokenData = JSON.parse(fs.readFileSync(TOKEN_FILE, 'utf8'));
-    } catch (e) {
-      return { isError: true, content: [{ type: 'text', text: 'Error reading token file: ' + e.message }] };
-    }
-  } else {
-    return { isError: true, content: [{ type: 'text', text: 'No active Google session found. Please run agy first to authenticate.' }] };
-  }
+  const backupExists = fs.existsSync(tokenBackup) || fs.existsSync(credsBackup);
 
-  if (fs.existsSync(CREDS_FILE)) {
-    try {
-      credsData = JSON.parse(fs.readFileSync(CREDS_FILE, 'utf8'));
-    } catch (e) {
-      // Ignore credentials file read errors
-    }
-  }
-
-  const email = await resolveEmail(tokenData, credsData);
-  if (!email) {
-    return { isError: true, content: [{ type: 'text', text: 'Could not resolve email address from current session. Check network connection.' }] };
-  }
-
-  const profileDir = path.join(PROFILES_DIR, email);
-  if (!fs.existsSync(profileDir)) {
-    fs.mkdirSync(profileDir, { recursive: true });
-  }
-
-  fs.writeFileSync(path.join(profileDir, 'antigravity-oauth-token'), JSON.stringify(tokenData, null, 2));
-  if (credsData) {
-    fs.writeFileSync(path.join(profileDir, 'oauth_creds.json'), JSON.stringify(credsData, null, 2));
-  }
-
-  logDebug(`Saved profile for ${email}`);
-  return {
-    content: [{
-      type: 'text',
-      text: `Successfully saved profile for account: ${email}`
-    }]
-  };
-}
-
-async function handlePrepareLogin() {
-  logDebug('Preparing for new login...');
-  // Check if current active account is saved
-  let activeEmail = null;
-  if (fs.existsSync(TOKEN_FILE)) {
-    try {
-      const tokenData = JSON.parse(fs.readFileSync(TOKEN_FILE, 'utf8'));
-      const credsData = fs.existsSync(CREDS_FILE) ? JSON.parse(fs.readFileSync(CREDS_FILE, 'utf8')) : null;
-      activeEmail = await resolveEmail(tokenData, credsData);
-      if (activeEmail) {
-        // Auto save current profile
-        const activeProfileDir = path.join(PROFILES_DIR, activeEmail);
-        if (!fs.existsSync(activeProfileDir)) {
-          fs.mkdirSync(activeProfileDir, { recursive: true });
+  if (!backupExists) {
+    // PHASE 1: Start login preparation
+    logDebug('handleAddAccount: Phase 1 (Prepare login)');
+    
+    // 1. Auto-save current active session if it exists
+    if (fs.existsSync(TOKEN_FILE)) {
+      try {
+        const activeToken = JSON.parse(fs.readFileSync(TOKEN_FILE, 'utf8'));
+        const activeCreds = fs.existsSync(CREDS_FILE) ? JSON.parse(fs.readFileSync(CREDS_FILE, 'utf8')) : null;
+        const activeEmail = await resolveEmail(activeToken, activeCreds);
+        if (activeEmail) {
+          const activeProfileDir = path.join(PROFILES_DIR, activeEmail);
+          if (!fs.existsSync(activeProfileDir)) {
+            fs.mkdirSync(activeProfileDir, { recursive: true });
+          }
+          fs.writeFileSync(path.join(activeProfileDir, 'antigravity-oauth-token'), JSON.stringify(activeToken, null, 2));
+          if (activeCreds) {
+            fs.writeFileSync(path.join(activeProfileDir, 'oauth_creds.json'), JSON.stringify(activeCreds, null, 2));
+          }
+          logDebug(`Phase 1: Auto-saved current active profile to ${activeEmail}`);
         }
-        fs.writeFileSync(path.join(activeProfileDir, 'antigravity-oauth-token'), JSON.stringify(tokenData, null, 2));
-        if (credsData) {
-          fs.writeFileSync(path.join(activeProfileDir, 'oauth_creds.json'), JSON.stringify(credsData, null, 2));
-        }
-        logDebug(`Saved active profile to ${activeEmail} before login prepare`);
+      } catch (e) {
+        logDebug('Phase 1: Failed to auto-save current profile: ' + e.message);
       }
-    } catch (e) {
-      logDebug('Failed to auto-save active profile: ' + e.message);
+    }
+
+    // 2. Backup and clear active session files
+    if (fs.existsSync(TOKEN_FILE)) {
+      fs.renameSync(TOKEN_FILE, tokenBackup);
+    }
+    if (fs.existsSync(CREDS_FILE)) {
+      fs.renameSync(CREDS_FILE, credsBackup);
+    }
+
+    let text = 'Successfully prepared for new account registration.\n\n';
+    text += '1. Please run `agy` or submit a new query to complete the Google Sign-in flow on your browser.\n';
+    text += '2. Once logged in, run this tool again (or ask me to complete) to save the new profile.\n\n';
+    text += 'NOTE: If you want to cancel, run this tool again without logging in, and I will restore your previous session.';
+
+    return {
+      content: [{
+        type: 'text',
+        text: text
+      }]
+    };
+  } else {
+    // PHASE 2: Complete login or cancel/restore
+    logDebug('handleAddAccount: Phase 2 (Complete or Restore)');
+
+    if (fs.existsSync(TOKEN_FILE)) {
+      // New token found - try to save profile
+      try {
+        const tokenData = JSON.parse(fs.readFileSync(TOKEN_FILE, 'utf8'));
+        const credsData = fs.existsSync(CREDS_FILE) ? JSON.parse(fs.readFileSync(CREDS_FILE, 'utf8')) : null;
+        const email = await resolveEmail(tokenData, credsData);
+        if (email) {
+          const profileDir = path.join(PROFILES_DIR, email);
+          if (!fs.existsSync(profileDir)) {
+            fs.mkdirSync(profileDir, { recursive: true });
+          }
+          fs.writeFileSync(path.join(profileDir, 'antigravity-oauth-token'), JSON.stringify(tokenData, null, 2));
+          if (credsData) {
+            fs.writeFileSync(path.join(profileDir, 'oauth_creds.json'), JSON.stringify(credsData, null, 2));
+          }
+
+          // Clean up backups
+          if (fs.existsSync(tokenBackup)) fs.unlinkSync(tokenBackup);
+          if (fs.existsSync(credsBackup)) fs.unlinkSync(credsBackup);
+
+          logDebug(`Phase 2: Saved new profile for ${email}`);
+          return {
+            content: [{
+              type: 'text',
+              text: `Successfully added new profile for account: ${email}`
+            }]
+          };
+        } else {
+          return {
+            isError: true,
+            content: [{
+              type: 'text',
+              text: 'Could not resolve email from the new token. Please ensure login completed successfully.'
+            }]
+          };
+        }
+      } catch (e) {
+        return {
+          isError: true,
+          content: [{
+            type: 'text',
+            text: 'Error processing new token: ' + e.message
+          }]
+        };
+      }
+    } else {
+      // No new token found - Restore previous session (Cancel)
+      logDebug('Phase 2: No new token found. Restoring backups.');
+      if (fs.existsSync(tokenBackup)) {
+        fs.renameSync(tokenBackup, TOKEN_FILE);
+      }
+      if (fs.existsSync(credsBackup)) {
+        fs.renameSync(credsBackup, CREDS_FILE);
+      }
+
+      return {
+        content: [{
+          type: 'text',
+          text: 'No new login detected. Restored the previous active session.'
+        }]
+      };
     }
   }
-
-  // Backup active session files and delete from active locations
-  if (fs.existsSync(TOKEN_FILE)) {
-    fs.renameSync(TOKEN_FILE, TOKEN_FILE + '.backup');
-  }
-  if (fs.existsSync(CREDS_FILE)) {
-    fs.renameSync(CREDS_FILE, CREDS_FILE + '.backup');
-  }
-
-  let text = 'Successfully prepared for new login.\n';
-  text += 'The active tokens have been cleared and backed up.\n';
-  text += 'Next time you run `agy` or initiate an agent query, you will be prompted to log in to Google via the browser.\n';
-  text += 'After completing the login, run `gswitch_add_current_account` to save this new account profile.';
-
-  return {
-    content: [{
-      type: 'text',
-      text: text
-    }]
-  };
 }
 
 async function handleSwitchAccount(email) {
@@ -449,13 +475,8 @@ async function handleMessage(line) {
               inputSchema: { type: 'object', properties: {} }
             },
             {
-              name: 'gswitch_add_current_account',
-              description: 'Detect the current active Google account from the CLI session and save it as a profile.',
-              inputSchema: { type: 'object', properties: {} }
-            },
-            {
-              name: 'gswitch_prepare_login',
-              description: 'Prepare the CLI for a new login by backing up the current active token. After calling this, the user can restart agy or execute a prompt to trigger a new Google login flow.',
+              name: 'gswitch_add_account',
+              description: 'Add a new Google account profile. Phase 1 prepares the session for login. Phase 2 finalizes saving or restores the active session on cancel/failure.',
               inputSchema: { type: 'object', properties: {} }
             },
             {
@@ -492,10 +513,8 @@ async function handleMessage(line) {
       try {
         if (toolName === 'gswitch_list_accounts') {
           result = await handleListAccounts();
-        } else if (toolName === 'gswitch_add_current_account') {
-          result = await handleAddCurrentAccount();
-        } else if (toolName === 'gswitch_prepare_login') {
-          result = await handlePrepareLogin();
+        } else if (toolName === 'gswitch_add_account') {
+          result = await handleAddAccount();
         } else if (toolName === 'gswitch_switch_account') {
           result = await handleSwitchAccount(args.email);
         } else if (toolName === 'gswitch_remove_account') {

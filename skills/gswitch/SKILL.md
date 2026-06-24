@@ -13,21 +13,19 @@ Skill này cho phép Antigravity Agent và người dùng quản lý nhiều tà
    - **Mô tả**: Liệt kê toàn bộ các tài khoản Google đã được lưu trong profiles và đánh dấu tài khoản nào đang hoạt động (`★ [ACTIVE]`).
    - **Khi nào sử dụng**: Dùng để kiểm tra danh sách tài khoản hiện có và xem tài khoản hiện tại là gì.
 
-2. **`gswitch_add_current_account`**
-   - **Mô tả**: Đọc token phiên đăng nhập Google hiện tại đang hoạt động trên Antigravity CLI, xác thực email của tài khoản này và lưu nó vào danh sách profile.
-   - **Khi nào sử dụng**: Chạy công cụ này sau khi bạn vừa đăng nhập tài khoản mới bằng trình duyệt qua flow của `agy` để lưu tài khoản đó vào danh sách gswitch.
+2. **`gswitch_add_account`**
+   - **Mô tả**: Công cụ 2 giai đoạn (stateful) để thêm một tài khoản mới:
+     - **Giai đoạn 1** (khi chưa đăng ký tài khoản mới): Tự động sao lưu phiên đăng nhập hiện tại và chuẩn bị cho trình duyệt kích hoạt OAuth đăng nhập mới.
+     - **Giai đoạn 2** (khi chạy lại sau khi đăng nhập): Quét token mới để lưu vào profile và dọn dẹp file tạm. Nếu không phát hiện đăng nhập mới, hệ thống tự động khôi phục (restore) lại token hoạt động trước đó.
+   - **Khi nào sử dụng**: Chạy khi muốn thêm tài khoản Google mới vào danh sách.
 
-3. **`gswitch_prepare_login`**
-   - **Mô tả**: Dọn dẹp và sao lưu phiên đăng nhập hiện tại. Sau khi gọi công cụ này, ở câu lệnh hoặc phiên chạy tiếp theo của `agy`, hệ thống sẽ yêu cầu bạn mở trình duyệt đăng nhập tài khoản Google mới.
-   - **Khi nào sử dụng**: Dùng khi bạn muốn thêm một tài khoản Google mới vào danh sách.
-
-4. **`gswitch_switch_account`**
+3. **`gswitch_switch_account`**
    - **Mô tả**: Chuyển tài khoản Google đang hoạt động của Antigravity CLI sang một email đã được lưu từ trước.
    - **Tham số**:
      - `email` (string, required): Địa chỉ email của tài khoản muốn chuyển đổi.
    - **Khi nào sử dụng**: Khi tài khoản hiện tại hết quota (hết lượt sử dụng API), hãy gọi công cụ này để đổi sang tài khoản phụ.
 
-5. **`gswitch_remove_account`**
+4. **`gswitch_remove_account`**
    - **Mô tả**: Xóa profile tài khoản đã lưu khỏi danh sách.
    - **Tham số**:
      - `email` (string, required): Email của tài khoản cần xóa.
@@ -35,8 +33,7 @@ Skill này cho phép Antigravity Agent và người dùng quản lý nhiều tà
 ## Hướng dẫn Quy trình Thêm Tài khoản Mới
 
 Để thêm một tài khoản Google mới vào danh sách chuyển đổi, hãy thực hiện các bước sau:
-1. Đảm bảo tài khoản hiện tại đã được lưu: Gọi `gswitch_add_current_account`.
-2. Chuẩn bị đăng nhập tài khoản mới: Gọi `gswitch_prepare_login`.
-3. Khởi động lại hoặc thực thi một prompt với `agy` để CLI kích hoạt luồng đăng nhập OAuth qua trình duyệt.
-4. Sau khi đăng nhập thành công tài khoản mới, gọi `gswitch_add_current_account` để lưu tài khoản mới này.
-5. Giờ đây bạn có thể dùng `gswitch_switch_account` để chuyển qua lại giữa các tài khoản!
+1. Chạy `gswitch_add_account` lần đầu. Hệ thống sẽ sao lưu tài khoản hiện tại và báo đã chuẩn bị xong.
+2. Khởi động lại hoặc thực thi một prompt với `agy` để CLI kích hoạt luồng đăng nhập OAuth qua trình duyệt. Hoàn tất đăng nhập.
+3. Chạy `gswitch_add_account` lần thứ hai để hệ thống xác nhận và lưu tài khoản mới thành profile.
+*(Nếu bạn thay đổi ý định hoặc đăng nhập thất bại, việc chạy lại `gswitch_add_account` ở bước 3 khi chưa có token mới sẽ tự động khôi phục lại tài khoản ban đầu).*
