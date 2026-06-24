@@ -1,39 +1,39 @@
 ---
 name: gswitch
-description: Google account switcher for Antigravity CLI. Giúp bạn lưu trữ nhiều tài khoản Google khác nhau và dễ dàng chuyển đổi qua lại khi một tài khoản bị hết hạn ngạch (quota limit).
+description: Google account switcher for Antigravity CLI. Helps you store multiple Google accounts and easily switch between them when an account hits quota limits.
 ---
 
 # Antigravity Google Account Switcher (`gswitch`)
 
-Skill này cho phép Antigravity Agent và người dùng quản lý nhiều tài khoản Google hoạt động trên Antigravity CLI (`agy`). Khi một tài khoản hết quota, bạn có thể dễ dàng chuyển sang tài khoản khác có sẵn để tiếp tục công việc mà không bị gián đoạn.
+This skill allows the Antigravity Agent and the user to manage multiple Google accounts on the Antigravity CLI (`agy`) and related editors. When an account runs out of Vertex AI API quota, you can easily swap to another saved account to continue your work without interruption.
 
-## Các Công cụ Khả dụng
+## Available Tools
 
 1. **`gswitch_list_accounts`**
-   - **Mô tả**: Liệt kê toàn bộ các tài khoản Google đã được lưu trong profiles và đánh dấu tài khoản nào đang hoạt động (`★ [ACTIVE]`).
-   - **Khi nào sử dụng**: Dùng để kiểm tra danh sách tài khoản hiện có và xem tài khoản hiện tại là gì.
+   - **Description**: Lists all Google accounts stored in your profiles and indicates which one is currently active (`★ [ACTIVE]`).
+   - **When to use**: Use this to check the list of available profiles and verify the currently active account.
 
 2. **`gswitch_add_account`**
-   - **Mô tả**: Công cụ 2 giai đoạn (stateful) để thêm một tài khoản mới:
-     - **Giai đoạn 1** (khi chưa đăng ký tài khoản mới): Tự động sao lưu phiên đăng nhập hiện tại và chuẩn bị cho trình duyệt kích hoạt OAuth đăng nhập mới.
-     - **Giai đoạn 2** (khi chạy lại sau khi đăng nhập): Quét token mới để lưu vào profile và dọn dẹp file tạm. Nếu không phát hiện đăng nhập mới, hệ thống tự động khôi phục (restore) lại token hoạt động trước đó.
-   - **Khi nào sử dụng**: Chạy khi muốn thêm tài khoản Google mới vào danh sách.
+   - **Description**: A stateful, 2-phase tool to register a new account:
+     - **Phase 1 (Preparation)**: Automatically backs up the current session files and clears active tokens. Subsequent CLI calls or queries will prompt the browser Google OAuth sign-in flow.
+     - **Phase 2 (Confirmation / Auto-Restore)**: Scans for the newly created active token, resolves its email, and saves it as a profile. If no new login is detected (e.g. login failed or cancelled), it **automatically restores** the previous active session to prevent lockout.
+   - **When to use**: Run this when you want to add a new Google account to the switcher.
 
 3. **`gswitch_switch_account`**
-   - **Mô tả**: Chuyển tài khoản Google đang hoạt động của Antigravity CLI sang một email đã được lưu từ trước.
-   - **Tham số**:
-     - `email` (string, required): Địa chỉ email của tài khoản muốn chuyển đổi.
-   - **Khi nào sử dụng**: Khi tài khoản hiện tại hết quota (hết lượt sử dụng API), hãy gọi công cụ này để đổi sang tài khoản phụ.
+   - **Description**: Switches the active Google account of the Antigravity CLI and IDE to a saved profile by its email.
+   - **Arguments**:
+     - `email` (string, required): The email address of the target account.
+   - **When to use**: When the current account hits quota limits, execute this tool to swap to a secondary profile.
 
 4. **`gswitch_remove_account`**
-   - **Mô tả**: Xóa profile tài khoản đã lưu khỏi danh sách.
-   - **Tham số**:
-     - `email` (string, required): Email của tài khoản cần xóa.
+   - **Description**: Deletes a saved profile from the switcher.
+   - **Arguments**:
+     - `email` (string, required): The email address of the profile to remove.
 
-## Hướng dẫn Quy trình Thêm Tài khoản Mới
+## Account Addition Workflow
 
-Để thêm một tài khoản Google mới vào danh sách chuyển đổi, hãy thực hiện các bước sau:
-1. Chạy `gswitch_add_account` lần đầu. Hệ thống sẽ sao lưu tài khoản hiện tại và báo đã chuẩn bị xong.
-2. Khởi động lại hoặc thực thi một prompt với `agy` để CLI kích hoạt luồng đăng nhập OAuth qua trình duyệt. Hoàn tất đăng nhập.
-3. Chạy `gswitch_add_account` lần thứ hai để hệ thống xác nhận và lưu tài khoản mới thành profile.
-*(Nếu bạn thay đổi ý định hoặc đăng nhập thất bại, việc chạy lại `gswitch_add_account` ở bước 3 khi chưa có token mới sẽ tự động khôi phục lại tài khoản ban đầu).*
+To add a new Google account, follow these steps:
+1. Run `gswitch_add_account` once. The tool will auto-save your current active account and clear active tokens.
+2. Submit a new prompt or run `agy` in your terminal to trigger the Google Sign-In browser flow. Complete the authentication.
+3. Run `gswitch_add_account` a second time to detect and save the new account as a profile.
+*(If you cancel or fail the browser login, running `gswitch_add_account` at step 3 will automatically restore your original active session).*
