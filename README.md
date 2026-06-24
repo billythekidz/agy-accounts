@@ -74,7 +74,7 @@ set email="user2@gmail.com"
 ### 4. Remove Account
 Remove a saved email profile:
 ```
-rm email="user2@gmail.com"
+remove email="user2@gmail.com"
 ```
 
 ## License

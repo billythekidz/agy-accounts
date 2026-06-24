@@ -495,7 +495,7 @@ async function handleMessage(line) {
               }
             },
             {
-              name: 'rm',
+              name: 'remove',
               description: 'Remove a saved account profile.',
               inputSchema: {
                 type: 'object',
@@ -521,7 +521,7 @@ async function handleMessage(line) {
           result = await handleAddAccount();
         } else if (toolName === 'set') {
           result = await handleSwitchAccount(args.email);
-        } else if (toolName === 'rm') {
+        } else if (toolName === 'remove') {
           result = handleRemoveAccount(args.email);
         } else {
           result = { isError: true, content: [{ type: 'text', text: `Tool ${toolName} not found` }] };

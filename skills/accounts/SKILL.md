@@ -25,7 +25,7 @@ This skill allows the Antigravity Agent and the user to manage multiple Google a
      - `email` (string, required): The email address of the target account.
    - **When to use**: When the current account hits quota limits, execute this tool to swap to a secondary profile.
 
-4. **`rm`**
+4. **`remove`**
    - **Description**: Deletes a saved profile from the switcher.
    - **Arguments**:
      - `email` (string, required): The email address of the profile to remove.
