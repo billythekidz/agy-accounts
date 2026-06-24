@@ -1,6 +1,7 @@
 {
+  "$schema": "https://antigravity.google/schemas/v1/plugin.json",
   "name": "agy-accounts",
   "version": "1.0.0",
-  "description": "Google account switcher for Google Antigravity CLI to manage multiple profiles and handle quota limits.",
-  "mcp_config.json": "mcp_config.json"
+  "description": "Google account switcher for Antigravity CLI. Manage multiple Google profiles and switch between them to handle quota limits.",
+  "mcp_config": "mcp_config.json"
 }
