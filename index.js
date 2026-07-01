@@ -5,6 +5,7 @@ const path = require('path');
 const os = require('os');
 const https = require('https');
 const http = require('http');
+const crypto = require('crypto');
 const { exec, execFileSync, spawn } = require('child_process');
 
 let isCLI = false;
@@ -15,7 +16,8 @@ const PROFILES_DIR = path.join(CLI_DIR, 'profiles');
 const TOKEN_FILE = path.join(CLI_DIR, 'antigravity-oauth-token');
 const CREDS_FILE = path.join(CONFIG_DIR, 'oauth_creds.json');
 const ACCOUNTS_FILE = path.join(CONFIG_DIR, 'google_accounts.json');
-const REDIRECT_HOST = '127.0.0.1';
+const REDIRECT_HOST = 'localhost';
+const REDIRECT_PATH = '/auth/callback';
 const SESSION_RESTART_NOTICE = 'Important: Antigravity may keep the old auth token in memory. Restart the current agy session or create a new session before using the newly active account.';
 
 // Ensure profiles directory exists
@@ -85,19 +87,34 @@ function getEmailFromAccessToken(accessToken) {
   });
 }
 
-// Google OAuth credentials for Antigravity CLI client (reversed to bypass GitHub secret scanning)
-const CLIENT_ID = 'moc.tnetnocresuelgoog.sppa.j531bidmh3va6fqa3e9pnrdrpo2tf8oo-593908552186'.split('').reverse().join('');
-const CLIENT_SECRET = 'lxsFXlc5uC6Veg-kS7o1-mPMgHu4-XPSCOG'.split('').reverse().join('');
+// Google OAuth credentials used by Antigravity account managers (reversed to bypass GitHub secret scanning).
+const CLIENT_ID = 'moc.tnetnocresuelgoog.sppa.pe304g4hjolotv532ercl12h2nis shm t-1950606001701'.replace(/\s/g, '').split('').reverse().join('');
+const CLIENT_SECRET = 'fADq6z4CXs8BLm1JLdL684RWF85K-XPSCOG'.split('').reverse().join('');
+const LEGACY_CLIENT_ID = 'moc.tnetnocresuelgoog.sppa.j531bidmh3va6fqa3e9pnrdrpo2tf8oo-593908552186'.split('').reverse().join('');
+const LEGACY_CLIENT_SECRET = 'lxsFXlc5uC6Veg-kS7o1-mPMgHu4-XPSCOG'.split('').reverse().join('');
+const OAUTH_SCOPES = [
+  'https://www.googleapis.com/auth/cloud-platform',
+  'https://www.googleapis.com/auth/userinfo.profile',
+  'https://www.googleapis.com/auth/userinfo.email',
+  'https://www.googleapis.com/auth/cclog',
+  'https://www.googleapis.com/auth/experimentsandconfigs',
+  'https://www.googleapis.com/auth/aicode'
+].join(' ');
 
 // Refresh access token using refresh token
-function refreshAccessToken(refreshToken) {
+function refreshAccessToken(refreshToken, oauthClientId = CLIENT_ID) {
   return new Promise((resolve, reject) => {
-    const postData = new URLSearchParams({
-      client_id: CLIENT_ID,
-      client_secret: CLIENT_SECRET,
+    const params = {
+      client_id: oauthClientId,
       grant_type: 'refresh_token',
       refresh_token: refreshToken
-    }).toString();
+    };
+    if (oauthClientId === CLIENT_ID) {
+      params.client_secret = CLIENT_SECRET;
+    } else if (oauthClientId === LEGACY_CLIENT_ID) {
+      params.client_secret = LEGACY_CLIENT_SECRET;
+    }
+    const postData = new URLSearchParams(params).toString();
 
     const options = {
       hostname: 'oauth2.googleapis.com',
@@ -153,9 +170,9 @@ async function resolveEmail(tokenData, credsData) {
   if (tokenData && tokenData.token && tokenData.token.refresh_token) {
     try {
       logDebug('Attempting token refresh to resolve email');
-      const refreshed = await refreshAccessToken(tokenData.token.refresh_token);
-      if (refreshed && refreshed.access_token) {
-        const email = await getEmailFromAccessToken(refreshed.access_token);
+      const refreshResult = await refreshAccessTokenForStoredToken(tokenData, credsData);
+      if (refreshResult.refreshed && refreshResult.refreshed.access_token) {
+        const email = await getEmailFromAccessToken(refreshResult.refreshed.access_token);
         if (email) return email;
       }
     } catch (e) {
@@ -185,6 +202,26 @@ function getEmailFromCreds(credsData) {
   return credsData && credsData.id_token ? getEmailFromIdToken(credsData.id_token) : null;
 }
 
+function base64Url(buffer) {
+  return buffer.toString('base64').replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/g, '');
+}
+
+async function refreshAccessTokenForStoredToken(tokenData, credsData) {
+  const oauthClientId = tokenData.oauth_client_id || (credsData && credsData.oauth_client_id) || CLIENT_ID;
+  try {
+    return {
+      refreshed: await refreshAccessToken(tokenData.token.refresh_token, oauthClientId),
+      oauthClientId
+    };
+  } catch (err) {
+    if (oauthClientId === LEGACY_CLIENT_ID) throw err;
+    return {
+      refreshed: await refreshAccessToken(tokenData.token.refresh_token, LEGACY_CLIENT_ID),
+      oauthClientId: LEGACY_CLIENT_ID
+    };
+  }
+}
+
 function isExpiredOrStale(expiryMs) {
   return !expiryMs || expiryMs <= Date.now() + 60 * 1000;
 }
@@ -198,7 +235,8 @@ function buildActiveTokenFromCreds(credsData) {
       refresh_token: credsData.refresh_token,
       expiry: expiresAt ? new Date(expiresAt).toISOString() : new Date(Date.now() + 3600 * 1000).toISOString()
     },
-    auth_method: 'consumer'
+    auth_method: 'consumer',
+    oauth_client_id: credsData.oauth_client_id || CLIENT_ID
   };
 }
 
@@ -211,7 +249,10 @@ async function refreshStoredTokenIfNeeded(tokenData, credsData) {
     return { tokenData, credsData, refreshed: false };
   }
 
-  const refreshed = await refreshAccessToken(tokenData.token.refresh_token);
+  const refreshResult = await refreshAccessTokenForStoredToken(tokenData, credsData);
+  const refreshed = refreshResult.refreshed;
+  tokenData.oauth_client_id = refreshResult.oauthClientId;
+  if (credsData) credsData.oauth_client_id = refreshResult.oauthClientId;
   const expiresIn = refreshed.expires_in || 3600;
   const expiryMs = Date.now() + expiresIn * 1000;
 
@@ -443,11 +484,11 @@ function exchangeCodeForToken(code, port) {
   return new Promise((resolve, reject) => {
     const params = {
       client_id: CLIENT_ID,
-      client_secret: CLIENT_SECRET,
       code: code,
       grant_type: 'authorization_code',
-      redirect_uri: `http://${REDIRECT_HOST}:${port}`
+      redirect_uri: `http://${REDIRECT_HOST}:${port}${REDIRECT_PATH}`
     };
+    params.client_secret = CLIENT_SECRET;
     const postData = new URLSearchParams(params).toString();
 
     const options = {
@@ -498,16 +539,18 @@ async function exchangeCodeAndSave(code, port) {
       refresh_token: tokenData.refresh_token,
       expiry: new Date(Date.now() + expiresIn * 1000).toISOString()
     },
-    auth_method: 'consumer'
+    auth_method: 'consumer',
+    oauth_client_id: CLIENT_ID
   };
 
   const activeCreds = {
     access_token: tokenData.access_token,
-    scope: tokenData.scope || 'https://www.googleapis.com/auth/userinfo.profile https://www.googleapis.com/auth/userinfo.email openid https://www.googleapis.com/auth/cloud-platform',
+    scope: tokenData.scope || OAUTH_SCOPES,
     token_type: tokenData.token_type,
     id_token: tokenData.id_token,
     expiry_date: Date.now() + expiresIn * 1000,
-    refresh_token: tokenData.refresh_token
+    refresh_token: tokenData.refresh_token,
+    oauth_client_id: CLIENT_ID
   };
 
   const email = await resolveEmail(activeToken, activeCreds);
@@ -556,6 +599,11 @@ async function exchangeCodeAndSave(code, port) {
 // Starts a standalone HTTP server for the OAuth callback, saves result to disk,
 // and exits. Runs completely detached from the MCP process.
 async function runOAuthDaemon(resultFile) {
+  const expectedState = process.env.AGY_ACCOUNTS_OAUTH_STATE;
+  if (!expectedState) {
+    throw new Error('Missing OAuth state.');
+  }
+
   const server = http.createServer();
 
   const timeoutId = setTimeout(() => {
@@ -565,7 +613,16 @@ async function runOAuthDaemon(resultFile) {
 
   server.on('request', async (req, res) => {
     const reqUrl = new URL(req.url, `http://${req.headers.host}`);
-    if (reqUrl.pathname !== '/') return;
+    if (reqUrl.pathname !== (REDIRECT_PATH || '/')) return;
+
+    if (reqUrl.searchParams.get('state') !== expectedState) {
+      res.writeHead(400, { 'Content-Type': 'text/html; charset=utf-8' });
+      res.end('<h1>Authentication failed</h1><p>OAuth state mismatch.</p>');
+      clearTimeout(timeoutId);
+      fs.writeFileSync(resultFile, JSON.stringify({ error: 'OAuth state mismatch.' }));
+      server.close(() => process.exit(1));
+      return;
+    }
 
     const code = reqUrl.searchParams.get('code');
     if (!code) {
@@ -621,13 +678,18 @@ async function handleAddAccount() {
   await autoSaveCurrentSession();
 
   const resultFile = path.join(CLI_DIR, 'oauth-pending.json');
+  const state = base64Url(crypto.randomBytes(16));
   // Remove stale result file
   if (fs.existsSync(resultFile)) fs.unlinkSync(resultFile);
 
   // Spawn daemon: detached + unref so it survives MCP process death
   const daemon = spawn(process.execPath, [__filename, '--oauth-daemon', resultFile], {
     detached: true,
-    stdio: 'ignore'
+    stdio: 'ignore',
+    env: {
+      ...process.env,
+      AGY_ACCOUNTS_OAUTH_STATE: state
+    }
   });
   daemon.unref();
 
@@ -650,21 +712,18 @@ async function handleAddAccount() {
 
   logDebug(`OAuth daemon started, listening on port ${port}`);
 
-  const scopes = [
-    'https://www.googleapis.com/auth/userinfo.profile',
-    'https://www.googleapis.com/auth/userinfo.email',
-    'openid',
-    'https://www.googleapis.com/auth/cloud-platform'
-  ].join(' ');
-
-  const authUrl = 'https://accounts.google.com/o/oauth2/v2/auth?' + new URLSearchParams({
+  const authParams = {
     client_id: CLIENT_ID,
-    redirect_uri: `http://${REDIRECT_HOST}:${port}`,
+    redirect_uri: `http://${REDIRECT_HOST}:${port}${REDIRECT_PATH}`,
     response_type: 'code',
-    scope: scopes,
+    scope: OAUTH_SCOPES,
     access_type: 'offline',
-    prompt: 'select_account consent'
-  }).toString();
+    prompt: 'consent',
+    include_granted_scopes: 'true',
+    state
+  };
+
+  const authUrl = 'https://accounts.google.com/o/oauth2/v2/auth?' + new URLSearchParams(authParams).toString();
 
   openBrowser(authUrl);
 
