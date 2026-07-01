@@ -16,6 +16,7 @@ const TOKEN_FILE = path.join(CLI_DIR, 'antigravity-oauth-token');
 const CREDS_FILE = path.join(CONFIG_DIR, 'oauth_creds.json');
 const ACCOUNTS_FILE = path.join(CONFIG_DIR, 'google_accounts.json');
 const REDIRECT_HOST = '127.0.0.1';
+const SESSION_RESTART_NOTICE = 'Important: Antigravity may keep the old auth token in memory. Restart the current agy session or create a new session before using the newly active account.';
 
 // Ensure profiles directory exists
 if (!fs.existsSync(PROFILES_DIR)) {
@@ -453,6 +454,7 @@ async function exchangeCodeAndSave(code, port) {
   logDebug(`Successfully registered and activated profile for: ${email}`);
   if (isCLI) {
     console.log(`Successfully registered and activated profile for: ${email}`);
+    console.log(SESSION_RESTART_NOTICE);
     process.exit(0);
   }
 }
@@ -493,6 +495,7 @@ async function runOAuthDaemon(resultFile) {
         <html><body style="font-family:sans-serif;text-align:center;padding:60px">
           <h1 style="color:#1a73e8">&#10003; Signed in successfully!</h1>
           <p>Your token has been saved. You can close this tab and return to the terminal.</p>
+          <p><strong>Important:</strong> Restart the current agy session or create a new session before using this account.</p>
         </body></html>
       `);
       fs.writeFileSync(resultFile, JSON.stringify({ ok: true }));
@@ -580,7 +583,7 @@ async function handleAddAccount() {
         `A Google Sign-in page should have opened in your browser automatically. If not, click the link below:\n\n` +
         `👉 **[Sign in with Google](${authUrl})**\n\n` +
         `Complete the sign-in flow in your browser — the new account will be automatically saved and activated once done. ` +
-        `Let me know when you\'re finished!`
+        `After sign-in completes, restart the current agy session or create a new session before using the newly active account.`
     }]
   };
 }
@@ -649,7 +652,7 @@ async function handleSwitchAccount(email) {
   return {
     content: [{
       type: 'text',
-      text: `Successfully switched to Google account: ${email}`
+      text: `Successfully switched to Google account: ${email}\n\n${SESSION_RESTART_NOTICE}`
     }]
   };
 }

@@ -15,13 +15,13 @@ This skill allows the Antigravity Agent and the user to manage multiple Google a
 
 2. **`add`**
    - **Description**: Starts a temporary local redirect server and opens the browser Google Sign-in page. The plugin automatically saves and activates the authenticated profile in one go.
-   - **When to use**: Run this when you want to add a new Google account to the switcher.
+   - **When to use**: Run this when you want to add a new Google account to the switcher. After sign-in completes, tell the user to restart the current `agy` session or create a new session so Antigravity reloads the active token.
 
 3. **`set`**
    - **Description**: Switches the active Google account of the Antigravity CLI and IDE to a saved profile by its email.
    - **Arguments**:
      - `email` (string, required): The email address of the target account.
-   - **When to use**: When the current account hits quota limits, execute this tool to swap to a secondary profile.
+   - **When to use**: When the current account hits quota limits, execute this tool to swap to a secondary profile. After switching, tell the user to restart the current `agy` session or create a new session.
 
 4. **`remove`**
    - **Description**: Deletes a saved profile from the switcher.
@@ -34,3 +34,4 @@ To add a new Google account:
 1. Run the `add` tool.
 2. Complete the Google Sign-in flow in the browser window that opens automatically (or click the returned link).
 3. The background redirect server will automatically receive the callback, save the new profile, and set it as active.
+4. Tell the user to restart the current `agy` session or create a new session before using the newly active account.

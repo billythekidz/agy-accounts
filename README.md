@@ -50,6 +50,8 @@ node ~/.gemini/config/plugins/agy-accounts/index.js add
 
 This will spin up the local redirect server, open your browser, and save the authenticated credentials as your active session and profile. Once completed, you can launch `agy` normally without any credential errors.
 
+> Important: after adding or switching accounts from inside an active `agy` session, restart the current session or create a new session. Antigravity may keep the old auth token in memory until a new session starts.
+
 ## Usage
 
 You can invoke the switching commands from within the `agy` interactive terminal session:
@@ -64,6 +66,7 @@ This will:
 2. Spin up a temporary local redirect server.
 3. Open your web browser to Google's authentication page.
 4. Once you complete the login, the local server will receive the callback, exchange the code for credentials, and save/activate the new profile automatically.
+5. Restart the current `agy` session or create a new session before using the newly active account.
 
 ### 2. List Accounts
 Show all saved accounts and see which one is active:
@@ -76,6 +79,7 @@ Switch to another saved email:
 ```
 set email="user2@gmail.com"
 ```
+After switching, restart the current `agy` session or create a new session so Antigravity reloads the active token.
 
 ### 4. Remove Account
 Remove a saved email profile:
